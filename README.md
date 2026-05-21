@@ -2,7 +2,7 @@
 
 Welcome to the Packet Routing Simulator! This interactive module is designed to help students understand the fundamental logic behind data transmission on the Internet.
 
-![Uploading image.png…]()
+<img width="1132" height="1038" alt="image" src="https://github.com/user-attachments/assets/4f1a9e92-7d64-447b-b5fd-b57a02bd54f5" />
 
 ## 🎯 Learning Objectives
 
