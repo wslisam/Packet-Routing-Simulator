@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Packet Routing Simulator: IP vs MAC</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fira+Code&display=swap" rel="stylesheet">
+    
+    <!-- MathJax -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { 
+                        sans: ['Inter', 'sans-serif'],
+                        mono: ['Fira Code', 'monospace']
+                    },
+                    colors: { ipBlue: '#3b82f6', macOrange: '#f97316' }
+                }
+            }
+        }
+    </script>
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f8fafc; overflow-x: hidden; }
+        
+        /* Simulation Animations */
+        .packet {
+            transition: all 1s cubic-bezier(0.4, 0, 0.2, 1);
+            position: absolute;
+            z-index: 50;
+            transform: translate(-50%, -50%);
+        }
+        .node-pulse { animation: pulse-border 2s infinite; }
+        @keyframes pulse-border {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6); }
+            70% { box-shadow: 0 0 0 12px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        .highlight-flash { animation: flash 1.5s ease-out; }
+        @keyframes flash {
+            0% { background-color: #fde68a; color: #b45309; transform: scale(1.05); }
+            50% { background-color: #fef3c7; color: #b45309; transform: scale(1.05); }
+            100% { background-color: transparent; color: inherit; transform: scale(1); }
+        }
+        .packet-trail { stroke-dasharray: 12; animation: trail-dash 1s linear infinite; }
+        @keyframes trail-dash { to { stroke-dashoffset: -24; } }
+        
+        /* Tooltip */
+        .has-tooltip { position: relative; cursor: help; text-decoration: underline dotted #94a3b8; text-underline-offset: 4px; }
+        .has-tooltip .tooltip-text { visibility: hidden; width: 280px; background-color: #1e293b; color: #fff; text-align: left; border-radius: 8px; padding: 12px; position: absolute; z-index: 100; bottom: 130%; left: 50%; transform: translateX(-50%); opacity: 0; transition: opacity 0.3s; font-size: 0.875rem; font-weight: normal; line-height: 1.6; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); }
+        .has-tooltip .tooltip-text::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -6px; border-width: 6px; border-style: solid; border-color: #1e293b transparent transparent transparent; }
+        .has-tooltip:hover .tooltip-text { visibility: visible; opacity: 1; }
+
+        /* Quiz Styles */
+        .quiz-option { transition: all 0.2s; cursor: pointer; }
+        .quiz-option:hover { background-color: #f1f5f9; }
+        .quiz-option.correct { background-color: #dcfce7; border-color: #22c55e; color: #166534; }
+        .quiz-option.wrong { background-color: #fee2e2; border-color: #ef4444; color: #991b1b; }
+        .quiz-option.disabled { pointer-events: none; opacity: 0.8; }
+    </style>
+</head>
+<body class="min-h-screen text-slate-800 flex flex-col selection:bg-blue-200 selection:text-blue-900">
+    
+    <!-- Top Navigation Bar -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-50">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex justify-between items-center">
+            <!-- Left: Title -->
+            <div class="flex items-center gap-3">
+                <i class="fa-solid fa-network-wired text-blue-600 text-xl"></i>
+                <span class="font-bold text-slate-800 text-lg tracking-tight" data-i18n="headerTitle">Packet Routing Simulator</span>
+            </div>
+            <!-- Right: Author & Language Switch -->
+            <div class="flex items-center gap-5">
+                <div class="text-sm font-medium text-slate-500 hidden sm:block">
+                    <span data-i18n="createdBy">Created by</span> <span class="text-slate-800 font-bold ml-1 border-b-2 border-blue-500">Sam Li</span>
+                </div>
+                <!-- Redesigned Language Button -->
+                <button id="lang-toggle-btn" class="flex items-center gap-2 px-4 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full border border-slate-300 transition-all shadow-sm">
+                    <i class="fa-solid fa-language text-lg text-blue-600"></i>
+                    <span id="lang-text" class="font-semibold text-sm">繁體中文</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-7xl mx-auto w-full p-6 sm:p-8 flex flex-col gap-10">
+        
+        <!-- Global Welcome Banner (Learning Objectives) -->
+        <section class="bg-blue-50 rounded-2xl p-8 border border-blue-100">
+            <h1 class="text-3xl font-bold text-blue-900 mb-4" data-i18n="appTitle">Packet Routing: IP vs MAC</h1>
+            <p class="text-lg text-blue-800 leading-loose max-w-4xl" data-i18n="appDesc">
+                In this interactive module, we will explore how data travels across the internet. You will learn the logical distinction between an IP address and a MAC address, visualize how packet headers change from router to router, and understand the core principles of Encapsulation.
+            </p>
+        </section>
+
+        <!-- Main Simulator Section -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Left: Visualizer Canvas -->
+            <div class="lg:col-span-2 bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col relative border-t-4 border-t-blue-500">
+                <div class="p-6 border-b border-slate-100 flex justify-between items-center">
+                    <h2 class="text-xl font-bold text-slate-800" data-i18n="simTitle">Transmission Simulator</h2>
+                    <div class="flex gap-3">
+                        <button id="btn-reset" class="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition shadow-sm" data-i18n="btnReset">Reset</button>
+                        <button id="btn-prev" class="px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 transition disabled:opacity-50 disabled:cursor-not-allowed shadow-sm" disabled data-i18n="btnPrev">Previous</button>
+                        <button id="btn-next" class="px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 shadow-sm transition disabled:opacity-50" data-i18n="btnStart">Start Journey</button>
+                        <button id="btn-auto" class="px-4 py-2 text-sm font-semibold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 shadow-sm transition flex items-center min-w-[90px] justify-center" data-i18n="btnAuto"><i class="fa-solid fa-play mr-2"></i> Auto</button>
+                    </div>
+                </div>
+                
+                <!-- Network Map Area (Scrollable to prevent element squeezing & overlap) -->
+                <div class="overflow-x-auto w-full">
+                    <div class="relative p-10 min-h-[420px] flex items-center justify-between min-w-[700px]" id="network-canvas">
+                        <!-- SVG connecting lines (Z-index 0 to stay behind text and nodes) -->
+                        <svg class="absolute inset-0 w-full h-full z-0 pointer-events-none" id="connections-svg"></svg>
+
+                        <!-- Node 0: Sender -->
+                        <div class="network-node z-10 flex flex-col items-center" id="node-0">
+                            <div class="relative z-10 w-20 h-20 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center text-3xl shadow-sm border-2 border-blue-200" id="icon-0">
+                                <i class="fa-solid fa-laptop"></i>
+                            </div>
+                            <div class="mt-4 text-center relative z-20 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg border border-slate-100 shadow-sm">
+                                <p class="font-bold text-slate-800 text-sm" data-i18n="node0Role">Sender</p>
+                                <p class="text-xs text-slate-500 mb-1.5" data-i18n="node0Name">Computer A (Home)</p>
+                                <div class="text-[10px] text-slate-600 font-mono text-left bg-blue-50 p-1.5 rounded border border-blue-100 leading-tight">
+                                    IP: 192.168.1.50<br>MAC: 00:1A:2B:3C:4D:5E
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Node 1: Router 1 -->
+                        <div class="network-node z-10 flex flex-col items-center" id="node-1">
+                            <div class="relative z-10 w-20 h-20 bg-slate-50 text-slate-600 rounded-full flex items-center justify-center text-3xl shadow-sm border-2 border-slate-200" id="icon-1">
+                                <i class="fa-solid fa-route"></i>
+                            </div>
+                            <div class="mt-4 text-center relative z-20 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg border border-slate-100 shadow-sm">
+                                <p class="font-bold text-slate-800 text-sm" data-i18n="node1Role">Router 1</p>
+                                <p class="text-xs text-slate-500" data-i18n="node1Name">Home Router</p>
+                            </div>
+                        </div>
+
+                        <!-- Node 2: Router 2 -->
+                        <div class="network-node z-10 flex flex-col items-center" id="node-2">
+                            <div class="relative z-10 w-20 h-20 bg-slate-50 text-slate-600 rounded-full flex items-center justify-center text-3xl shadow-sm border-2 border-slate-200" id="icon-2">
+                                <i class="fa-solid fa-route"></i>
+                            </div>
+                            <div class="mt-4 text-center relative z-20 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg border border-slate-100 shadow-sm">
+                                <p class="font-bold text-slate-800 text-sm" data-i18n="node2Role">Router 2</p>
+                                <p class="text-xs text-slate-500" data-i18n="node2Name">ISP Router</p>
+                            </div>
+                        </div>
+
+                        <!-- Node 3: Receiver -->
+                        <div class="network-node z-10 flex flex-col items-center" id="node-3">
+                            <div class="relative z-10 w-20 h-20 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center text-3xl shadow-sm border-2 border-emerald-200" id="icon-3">
+                                <i class="fa-solid fa-server"></i>
+                            </div>
+                            <div class="mt-4 text-center relative z-20 bg-white/90 backdrop-blur-sm px-3 py-2 rounded-lg border border-slate-100 shadow-sm">
+                                <p class="font-bold text-slate-800 text-sm" data-i18n="node3Role">Receiver</p>
+                                <p class="text-xs text-slate-500 mb-1.5" data-i18n="node3Name">Game Server</p>
+                                <div class="text-[10px] text-slate-600 font-mono text-left bg-emerald-50 p-1.5 rounded border border-emerald-100 leading-tight">
+                                    IP: 210.3.4.88<br>MAC: FF:EE:DD:CC:BB:AA
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- The Packet -->
+                        <div id="the-packet" class="packet hidden flex flex-col items-center justify-center pointer-events-none">
+                            <div class="relative w-20 h-14 bg-amber-100 border-2 border-amber-400 rounded-lg shadow-xl flex items-center justify-center">
+                                <i class="fa-solid fa-envelope-open-text text-amber-700 text-2xl"></i>
+                                <div id="transport-icon" class="absolute -bottom-3 -right-3 w-8 h-8 bg-slate-800 text-white rounded-full flex items-center justify-center text-xs shadow-md border-2 border-white">
+                                    <i class="fa-solid fa-truck"></i>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="status-box" class="bg-blue-50/50 p-6 border-t border-blue-100 rounded-b-2xl transition-colors">
+                    <p id="status-text" class="text-lg leading-loose text-slate-700" data-i18n="statusInit">Click "Start Journey" to track the journey of the packet. Pay close attention to how the MAC address changes on the right!</p>
+                </div>
+            </div>
+
+            <!-- Right: Live Header Tracker -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 flex flex-col border-t-4 border-t-purple-500">
+                <div class="p-6 border-b border-slate-100">
+                    <h2 class="text-xl font-bold text-slate-800" data-i18n="trackerTitle">Live Packet Header</h2>
+                    <p class="text-sm font-medium text-slate-500 mt-2" data-i18n="trackerDesc">Headers act like the shipping labels on a package. Watch how they change!</p>
+                </div>
+                
+                <div class="p-6 flex flex-col gap-8 flex-grow bg-slate-50/50">
+                    
+                    <!-- Layer 3: IP Address -->
+                    <div class="bg-white border border-blue-200 rounded-xl shadow-sm">
+                        <div class="bg-blue-50/80 border-b border-blue-100 p-4 flex items-center gap-3 rounded-t-lg">
+                            <i class="fa-solid fa-globe text-blue-600 text-xl"></i>
+                            <h3 class="font-bold text-blue-900 text-lg has-tooltip"><span data-i18n="ipLayer">Network Layer - IP</span>
+                                <span class="tooltip-text" data-i18n="ipTooltip">IP addresses ensure the packet reaches its final destination across different networks. It acts like the recipient's address on a letter.</span>
+                            </h3>
+                        </div>
+                        <div class="p-5 grid grid-cols-1 gap-5">
+                            <div>
+                                <p class="text-slate-500 text-sm font-semibold mb-2" data-i18n="ipSrcLabel">Source IP</p>
+                                <p id="ip-src" class="font-mono bg-slate-50 border border-slate-200 p-3 rounded-lg text-slate-800 font-medium text-base tracking-wide">192.168.1.50</p>
+                            </div>
+                            <div>
+                                <div class="flex items-center justify-between mb-2">
+                                    <p class="text-slate-500 text-sm font-semibold" data-i18n="ipDstLabel">Destination IP</p>
+                                    <span id="ip-match-badge" class="hidden text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200 transition-all duration-300 shadow-sm"><i class="fa-solid fa-check mr-1"></i><span data-i18n="badgeMatch">Match!</span></span>
+                                </div>
+                                <p id="ip-dst" class="font-mono bg-slate-50 border border-slate-200 p-3 rounded-lg text-slate-800 font-medium text-base tracking-wide transition-all duration-300">210.3.4.88</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Layer 2: MAC Address -->
+                    <div class="bg-white border border-orange-200 rounded-xl shadow-sm">
+                        <div class="bg-orange-50/80 border-b border-orange-100 p-4 flex items-center gap-3 rounded-t-lg">
+                            <i class="fa-solid fa-link text-orange-600 text-xl"></i>
+                            <h3 class="font-bold text-orange-900 text-lg has-tooltip"><span data-i18n="macLayer">Data Link Layer - MAC</span>
+                                <span class="tooltip-text" data-i18n="macTooltip">MAC addresses ensure the frame reaches the next direct hop within the same local network. It is discarded and recreated at every router.</span>
+                            </h3>
+                        </div>
+                        <div class="p-5 grid grid-cols-1 gap-5">
+                            <div>
+                                <p class="text-slate-500 text-sm font-semibold mb-2" data-i18n="macSrcLabel">Source MAC</p>
+                                <p id="mac-src" class="font-mono bg-slate-50 border border-slate-200 p-3 rounded-lg text-slate-800 font-medium text-base tracking-wide transition-all duration-300">--:--:--:--:--:--</p>
+                            </div>
+                            <div>
+                                <div class="flex items-center justify-between mb-2">
+                                    <p class="text-slate-500 text-sm font-semibold" data-i18n="macDstLabel">Destination MAC</p>
+                                    <span id="mac-match-badge" class="hidden text-xs font-bold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded border border-emerald-200 transition-all duration-300 shadow-sm"><i class="fa-solid fa-check mr-1"></i><span data-i18n="badgeMatch">Match!</span></span>
+                                </div>
+                                <p id="mac-dst" class="font-mono bg-slate-50 border border-slate-200 p-3 rounded-lg text-slate-800 font-medium text-base tracking-wide transition-all duration-300">--:--:--:--:--:--</p>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </section>
+
+        <!-- Deep Dive: Code Syntax Tabs -->
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 border-t-4 border-t-slate-800">
+            <div class="mb-6">
+                <h2 class="text-2xl font-bold text-slate-800" data-i18n="codeTitle">Under the Hood: Structuring a Packet</h2>
+                <p class="text-lg text-slate-600 mt-2 leading-loose" data-i18n="codeDesc">How do programmers define a network packet in software? Let's look at a simplified logical structure demonstrating the separation of MAC (Layer 2) and IP (Layer 3) headers.</p>
+            </div>
+            
+            <div class="rounded-xl overflow-hidden shadow-sm border border-slate-700">
+                <div class="flex bg-slate-800">
+                    <button id="tab-py" class="px-6 py-3 text-sm font-semibold text-white border-b-2 border-blue-400 bg-slate-700 transition-colors">Python</button>
+                    <button id="tab-cpp" class="px-6 py-3 text-sm font-semibold text-slate-400 border-b-2 border-transparent hover:text-white transition-colors">C++</button>
+                </div>
+                <div class="p-6 bg-slate-900 overflow-x-auto">
+<pre id="code-py-container" class="text-sm font-mono leading-relaxed block text-slate-300"></pre>
+<pre id="code-cpp-container" class="text-sm font-mono leading-relaxed hidden text-slate-300"></pre>
+                </div>
+            </div>
+        </section>
+
+        <!-- Concept: Think & Link with Drafting Textarea -->
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 border-t-4 border-t-amber-500">
+            <h2 class="text-2xl font-bold text-slate-800 mb-6" data-i18n="thinkTitle">Think & Link: The Real-world Analogy</h2>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                <div class="bg-blue-50 p-6 rounded-xl border border-blue-100 flex gap-5 items-start">
+                    <div class="w-14 h-14 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center text-2xl shrink-0"><i class="fa-solid fa-envelope"></i></div>
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-lg mb-2" data-i18n="thinkIpTitle">IP Address = Mailing Address</h3>
+                        <p class="text-slate-600 text-base leading-loose" data-i18n="thinkIpDesc">Just like the destination address written on a letter, the IP Address dictates the ultimate destination. It remains unaltered from the moment it leaves the sender.</p>
+                    </div>
+                </div>
+                <div class="bg-orange-50 p-6 rounded-xl border border-orange-100 flex gap-5 items-start">
+                    <div class="w-14 h-14 bg-orange-100 text-orange-600 rounded-full flex items-center justify-center text-2xl shrink-0"><i class="fa-solid fa-truck"></i></div>
+                    <div>
+                        <h3 class="font-bold text-slate-800 text-lg mb-2" data-i18n="thinkMacTitle">MAC Address = Delivery Truck</h3>
+                        <p class="text-slate-600 text-base leading-loose" data-i18n="thinkMacDesc">The MAC address acts like the delivery truck. When a parcel reaches a post office (router), it is unloaded from one truck and loaded onto another. The truck (MAC) changes, but the parcel's address (IP) does not.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Interactive Draft & Compare -->
+            <div class="bg-slate-50 border border-slate-200 rounded-xl p-6">
+                <h3 class="font-bold text-slate-800 text-lg mb-4 flex items-center gap-2">
+                    <i class="fa-solid fa-brain text-amber-500"></i> 
+                    <span data-i18n="draftQuestion">Critical Thinking: Why must the router discard the old MAC address instead of keeping it?</span>
+                </h3>
+                <p class="text-sm text-slate-500 mb-4" data-i18n="draftInstruction">Draft your logic below before checking the explanation. Formulating your own answer strengthens logical deduction.</p>
+                
+                <textarea id="draft-textarea" rows="4" class="w-full p-4 rounded-lg border border-slate-300 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none text-base leading-loose resize-none transition-all" placeholder="Type your thoughts here..."></textarea>
+                
+                <div class="mt-4 flex justify-end">
+                    <button id="btn-compare" class="px-6 py-2.5 bg-slate-800 text-white font-semibold rounded-lg hover:bg-slate-700 transition shadow-sm" data-i18n="btnCompare">Compare with Answer</button>
+                </div>
+
+                <!-- Reveal Answer Area -->
+                <div id="reveal-answer" class="hidden mt-6 pt-6 border-t border-slate-200">
+                    <h4 class="font-bold text-emerald-700 text-lg mb-2 flex items-center gap-2"><i class="fa-solid fa-circle-check"></i> <span data-i18n="ansTitle">Detailed Explanation</span></h4>
+                    <p class="text-slate-700 text-lg leading-loose" data-i18n="ansText">
+                        A MAC address is only valid within its own Local Area Network (LAN). A router connects different networks. When a frame arrives at a router, the router performs <strong>Decapsulation</strong> (stripping the old MAC header because the old delivery truck has reached its limit). It then checks the IP address to determine the next path, and performs <strong>Encapsulation</strong>, attaching a new MAC header (a new truck) that points to the next router's hardware address.
+                    </p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Common Misconceptions & Key Takeaways -->
+        <section class="grid grid-cols-1 md:grid-cols-2 gap-8">
+            <!-- Misconceptions -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 border-t-4 border-t-rose-500 p-8">
+                <h2 class="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <span data-i18n="miscTitle">Common Misconceptions</span>
+                </h2>
+                <div class="space-y-6">
+                    <div class="bg-slate-50 p-6 rounded-xl border border-slate-100">
+                        <p class="font-semibold text-rose-700 text-lg mb-3 flex items-start gap-2">
+                            <i class="fa-solid fa-xmark mt-1"></i> <span data-i18n="miscQ1">Myth: IP Addresses change every time they pass through a router.</span>
+                        </p>
+                        <p class="text-lg leading-loose text-slate-700" data-i18n="miscA1">
+                            Fact: Think of the IP address as the ultimate destination on a package. Unless Network Address Translation (NAT) is involved, it stays the exact same from the very beginning to the very end. The router only changes the MAC address (the local delivery truck) to move it to the next stop.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Key Takeaways -->
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-200 border-t-4 border-t-indigo-500 p-8">
+                <h2 class="text-2xl font-bold text-slate-800 mb-6 flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-full bg-indigo-100 text-indigo-600 flex items-center justify-center"><i class="fa-solid fa-lightbulb"></i></div>
+                    <span data-i18n="takeawayTitle">Key Takeaways</span>
+                </h2>
+                <ul class="space-y-5 text-lg leading-loose text-slate-700">
+                    <li class="flex items-start gap-3">
+                        <i class="fa-solid fa-check text-indigo-500 mt-1.5"></i>
+                        <span data-i18n="takeaway1"><strong>IP Address</strong> tells us the final destination across the entire internet.</span>
+                    </li>
+                    <li class="flex items-start gap-3">
+                        <i class="fa-solid fa-check text-indigo-500 mt-1.5"></i>
+                        <span data-i18n="takeaway2"><strong>MAC Address</strong> tells us the next immediate machine on the same physical link or network segment (like from your computer to your home router).</span>
+                    </li>
+                    <li class="flex items-start gap-3">
+                        <i class="fa-solid fa-check text-indigo-500 mt-1.5"></i>
+                        <span data-i18n="takeaway3">Routers perform <strong>Decapsulation</strong> (unpacking the old MAC box) and <strong>Encapsulation</strong> (packing into a new MAC box) without touching the IP address.</span>
+                    </li>
+                </ul>
+            </div>
+        </section>
+
+        <!-- Mini Quiz Section -->
+        <section class="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 border-t-4 border-t-emerald-500">
+            <div class="mb-8">
+                <h2 class="text-2xl font-bold text-slate-800 flex items-center gap-3"><i class="fa-solid fa-list-check text-emerald-500"></i><span data-i18n="quizTitle">Mini Quiz: Concept Check</span></h2>
+                <p class="text-lg text-slate-600 mt-2" data-i18n="quizSubtitle">Ensure you have fully grasped the concepts of Layer 2 and Layer 3 headers.</p>
+            </div>
+            
+            <div id="quiz-container" class="space-y-6">
+                <!-- Quiz dynamically injected by JS -->
+            </div>
+            
+            <div id="quiz-results" class="mt-8 hidden bg-emerald-50 border border-emerald-200 text-emerald-800 p-6 rounded-xl flex flex-col sm:flex-row items-center justify-between shadow-sm">
+                <div class="flex items-center gap-4 mb-4 sm:mb-0">
+                    <div class="w-12 h-12 bg-emerald-200 text-emerald-700 rounded-full flex items-center justify-center text-2xl"><i class="fa-solid fa-trophy"></i></div>
+                    <div>
+                        <span class="font-medium text-lg" data-i18n="quizScoreLabel">Your Score: </span>
+                        <span id="score-display" class="font-bold text-2xl ml-1">0/3</span>
+                    </div>
+                </div>
+                <button id="btn-retry-quiz" class="px-6 py-3 bg-emerald-600 text-white font-semibold rounded-lg hover:bg-emerald-700 transition shadow-sm" data-i18n="btnRetryQuiz">Retry Quiz</button>
+            </div>
+        </section>
+
+    </main>
+
+    <script>
+        const i18nDict = {
+            en: {
+                headerTitle: "Packet Routing Simulator",
+                createdBy: "Created by",
+                badgeMatch: "Match!",
+                appTitle: "Packet Routing: IP vs MAC",
+                appDesc: "In this interactive module, we will explore how data travels across the internet. You will learn the logical distinction between an IP address and a MAC address, visualize how packet headers change from router to router, and understand the core principles of Encapsulation.",
+                simTitle: "Transmission Simulator",
+                btnReset: "Reset",
+                btnStart: "Start Journey",
+                btnNext: "Next Hop",
+                btnPrev: "Previous",
+                btnAuto: "Auto",
+                btnAutoPause: "Pause",
+                node0Role: "Sender", node0Name: "Computer A (Home)",
+                node1Role: "Router 1", node1Name: "Home Router",
+                node2Role: "Router 2", node2Name: "ISP Router",
+                node3Role: "Receiver", node3Name: "Game Server",
+                statusInit: "Click <b>Start Journey</b> to track the journey of the packet. Pay close attention to how the MAC address changes on the right!",
+                trackerTitle: "Live Packet Tracker",
+                trackerDesc: "Headers act like the shipping labels on a package. Watch how they change!",
+                ipLayer: "Network Layer (L3) - IP",
+                ipTooltip: "IP addresses ensure the packet reaches its final destination across different networks. It acts like the recipient's address on a letter.",
+                ipSrcLabel: "Source IP", ipDstLabel: "Destination IP",
+                macLayer: "Data Link Layer (L2) - MAC",
+                macTooltip: "MAC addresses ensure the local delivery box (Frame) reaches the next direct hop within the same local area network (LAN). It is discarded and recreated at every router.",
+                macSrcLabel: "Source MAC", macDstLabel: "Destination MAC",
+                
+                miscTitle: "Common Misconceptions",
+                miscQ1: "Myth: IP Addresses change every time they pass through a router.",
+                miscA1: "Fact: Think of the IP address as the ultimate destination on a package. Unless Network Address Translation (NAT) is involved, it stays the exact same from the very beginning to the very end. The router only changes the MAC address (the local delivery truck) to move it to the next stop.",
+                
+                takeawayTitle: "Key Takeaways",
+                takeaway1: "<strong>IP Address</strong> tells us the final destination across the entire internet.",
+                takeaway2: "<strong>MAC Address</strong> tells us the next immediate machine on the same physical link or network segment (like from your computer to your home router).",
+                takeaway3: "Routers perform <strong>Decapsulation</strong> (unpacking the old MAC box) and <strong>Encapsulation</strong> (packing into a new MAC box) without touching the IP address.",
+
+                codeTitle: "Under the Hood: Structuring a Packet",
+                codeDesc: "How do programmers define a network packet in software? Let's look at a simplified logical structure demonstrating the separation of MAC (Layer 2) and IP (Layer 3) headers.",
+                
+                thinkTitle: "Think & Link: The Real-world Analogy",
+                thinkIpTitle: "IP Address = Mailing Address",
+                thinkIpDesc: "Just like the destination address written on a letter, the IP Address dictates the ultimate destination. It remains unaltered from the moment it leaves the sender.",
+                thinkMacTitle: "MAC Address = Delivery Truck",
+                thinkMacDesc: "The MAC address acts like the delivery truck. When a parcel reaches a post office (router), it is unloaded from one truck and loaded onto another. The truck (MAC) changes, but the parcel's address (IP) does not.",
+                
+                draftQuestion: "Critical Thinking: Why must the router discard the old MAC address instead of keeping it?",
+                draftInstruction: "Draft your logic below before checking the explanation.",
+                btnCompare: "Compare with Answer",
+                ansTitle: "Detailed Explanation",
+                ansText: "Think of a router like a post office. The MAC address is just the local delivery truck. Once the truck reaches the post office, its job is done, so the router 'discards' the old truck (this is called <strong>Decapsulation</strong>). The router then reads the final IP address on the letter to decide where it should go next. Finally, it puts the letter into a brand new truck (this is called <strong>Encapsulation</strong>, writing a new MAC address) to send it to the next stop!",
+
+                step0: "📍 <b>Location:</b> Sender (Computer A)<br><br>⚙️ <b>Logic:</b> The packet is generated. Destination IP points to the Game Server. The data is packed into a local delivery box (Frame) targeting the Home Router's MAC address.",
+                step1: "📍 <b>Location:</b> Router 1 (Home Router)<br><br>⚙️ <b>Logic:</b> The router decapsulates (opens) the Frame. It reads the IP, realizes the destination is outside the home network, and encapsulates it into a NEW Frame targeting the ISP Router's MAC. Notice: The IP address remains constant!",
+                step2: "📍 <b>Location:</b> Router 2 (ISP Router)<br><br>⚙️ <b>Logic:</b> The ISP Router checks the IP, sees the final destination is in its datacenter network, and packages it one last time targeting the Game Server's MAC address.",
+                step3: "📍 <b>Location:</b> Final Destination (Game Server)<br><br>⚙️ <b>Logic:</b> Delivered! The Game Server opens the Frame. Look at the server's info on the map and the tracker on the right: it checks if the Destination MAC and IP match <b>its own</b> addresses (See the green 'Match' badges!). Since they match, it processes the payload.",
+
+                quizTitle: "Mini Quiz: Concept Check",
+                quizSubtitle: "Ensure you have fully grasped the concepts of Layer 2 and Layer 3 headers.",
+                quizScoreLabel: "Your Score: ",
+                btnRetryQuiz: "Retry Quiz",
+                quizExplanationLabel: "Explanation: ",
+
+                // English Code Snippets with Syntax Highlighting
+                codePyStr: `<span class="text-pink-400">class</span> <span class="text-blue-300">Packet</span>:
+    <span class="text-pink-400">def</span> <span class="text-blue-300">__init__</span>(<span class="text-orange-300">self</span>, src_mac, dst_mac, src_ip, dst_ip, payload):
+        <span class="text-slate-400"># Layer 2: MAC Addresses (The Delivery Trucks)</span>
+        <span class="text-slate-400"># These are replaced at every router hop!</span>
+        <span class="text-orange-300">self</span>.src_mac = src_mac
+        <span class="text-orange-300">self</span>.dst_mac = dst_mac
+        
+        <span class="text-slate-400"># Layer 3: IP Addresses (The Final Mailing Address)</span>
+        <span class="text-slate-400"># These remain exactly the same from start to finish!</span>
+        <span class="text-orange-300">self</span>.src_ip = src_ip
+        <span class="text-orange-300">self</span>.dst_ip = dst_ip
+        
+        <span class="text-orange-300">self</span>.payload = payload <span class="text-slate-400"># The actual data to send</span>
+
+    <span class="text-pink-400">def</span> <span class="text-blue-300">route_hop</span>(<span class="text-orange-300">self</span>, new_src_mac, new_dst_mac):
+        <span class="text-green-300">""" Simulates what happens when a packet reaches a router """</span>
+        <span class="text-slate-400"># 1. Strip old truck packaging, add new (Decapsulation & Encapsulation)</span>
+        <span class="text-orange-300">self</span>.src_mac = new_src_mac
+        <span class="text-orange-300">self</span>.dst_mac = new_dst_mac
+        
+        <span class="text-slate-400"># 2. Notice: src_ip and dst_ip are NEVER modified here!</span>`,
+
+                codeCppStr: `<span class="text-pink-400">#include</span> <span class="text-green-300">&lt;iostream&gt;</span>
+<span class="text-pink-400">#include</span> <span class="text-green-300">&lt;string&gt;</span>
+<span class="text-pink-400">using namespace</span> std;
+
+<span class="text-pink-400">struct</span> <span class="text-blue-300">Packet</span> {
+    <span class="text-slate-400">// Layer 2: MAC Addresses (The Delivery Trucks)</span>
+    <span class="text-slate-400">// These are replaced at every router hop!</span>
+    string src_mac;
+    string dst_mac;
+    
+    <span class="text-slate-400">// Layer 3: IP Addresses (The Final Mailing Address)</span>
+    <span class="text-slate-400">// These remain exactly the same from start to finish!</span>
+    string src_ip;
+    string dst_ip;
+    
+    string payload; <span class="text-slate-400">// The actual data to send</span>
+
+    <span class="text-slate-400">// Simulates what happens when a packet reaches a router</span>
+    <span class="text-pink-400">void</span> <span class="text-blue-300">routeHop</span>(string new_src_mac, string new_dst_mac) {
+        <span class="text-slate-400">// 1. Strip old truck packaging, add new (Decapsulation & Encapsulation)</span>
+        <span class="text-orange-300">this</span>->src_mac = new_src_mac;
+        <span class="text-orange-300">this</span>->dst_mac = new_dst_mac;
+        
+        <span class="text-slate-400">// 2. Notice: src_ip and dst_ip are NEVER modified here!</span>
+    }
+};`
+            },
+            zh: {
+                headerTitle: "封包傳輸模擬器",
+                createdBy: "Created by",
+                badgeMatch: "吻合！",
+                appTitle: "網絡封包旅程：認清 IP 與 MAC",
+                appDesc: "這個互動單元會帶你看看數據是如何在互聯網中旅行的！你會學到 IP 位址 (IP Address) 和 MAC 位址 (MAC Address) 到底有什麼分別，親眼看到封包經過路由器 (Router) 時發生了什麼變化，並輕鬆弄懂「封裝」(Encapsulation) 的原理。",
+                simTitle: "傳輸模擬器 (Transmission Simulator)",
+                btnReset: "重新開始",
+                btnStart: "開始旅程",
+                btnNext: "下一站",
+                btnPrev: "上一步",
+                btnAuto: "自動播放",
+                btnAutoPause: "暫停播放",
+                node0Role: "發送端", node0Name: "電腦 A (你的家)",
+                node1Role: "路由器 1", node1Name: "家用路由器",
+                node2Role: "路由器 2", node2Name: "電訊商路由器",
+                node3Role: "接收端", node3Name: "遊戲伺服器",
+                statusInit: "點擊 <b>開始旅程</b> 追蹤封包 (Packet) 的傳輸過程。請仔細留意右側面板中 MAC 位址是怎樣變化的！",
+                trackerTitle: "實時標頭 (Live Packet Header) 觀察區",
+                trackerDesc: "標頭 (Header) 就像包裹上的物流面單，記錄了傳輸地址。請觀察它在途中的變化！",
+                ipLayer: "網絡層 (Network Layer) - IP",
+                ipTooltip: "IP 位址就像信件上的收件人地址，確保封包能跨越不同的網絡，送到最終的目的地。",
+                ipSrcLabel: "來源 IP (Source IP)", ipDstLabel: "目的 IP (Destination IP)",
+                macLayer: "數據連結層 (Data Link Layer) - MAC",
+                macTooltip: "在網絡世界中，我們把包裹的外箱稱為「訊框 (Frame)」。MAC 位址負責將這箱子送到同一個實體空間內 (如家裡或電腦室) 直接連線的下一台機器。每經過一個路由器，舊外箱和舊 MAC 就會被丟棄並重新建立。",
+                macSrcLabel: "來源 MAC", macDstLabel: "目的 MAC",
+
+                miscTitle: "常見迷思 (Common Misconceptions)",
+                miscQ1: "迷思：IP 位址在傳輸過程中，每經過一個路由器就會改變。",
+                miscA1: "事實：IP 位址 (IP Address) 就像包裹上的最終地址，從發送到接收，通常都是原封不動的 (除非遇到「網絡地址轉換」Network Address Translation, NAT 這類特殊技術)。只有 MAC 位址 (MAC Address) 才會在每一個路由器 (Router) 被換掉，因為它只負責把包裹送到下一個轉運站。",
+                
+                takeawayTitle: "重點總結 (Key Takeaways)",
+                takeaway1: "<strong>IP 位址 (IP Address)</strong> 決定了封包在廣大互聯網中的最終邏輯目的地。",
+                takeaway2: "<strong>MAC 位址 (MAC Address)</strong> 只負責尋找「直接連線的下一台機器」。這台機器可能在同一個實體網絡區段內（例如你的電腦連到家裡的路由器，或是從一個路由器連到另一個路由器）。",
+                takeaway3: "路由器 (Router) 會進行<strong>解封裝 (Decapsulation)</strong>（拆開舊的 MAC 外箱）和<strong>封裝 (Encapsulation)</strong>（包裝進新的 MAC 外箱），但絕對不會去改動裡面的 IP 標頭。",
+                
+                codeTitle: "技術解析：程式碼中的封包 (Packet Structure)",
+                codeDesc: "如果我們要寫一個程式來模擬網絡封包，程式碼會是什麼樣子呢？來看看這個簡化的結構，了解 MAC 和 IP 在邏輯上的處理方式！",
+                
+                thinkTitle: "概念連結：生活類比 (Think & Link)",
+                thinkIpTitle: "IP 位址 = 郵遞地址",
+                thinkIpDesc: "就像寫在包裹上的最終地址，IP 位址決定了包裹最後要送去誰家。從寄件人寄出直到送達，這個地址永遠不會改變。",
+                thinkMacTitle: "MAC 位址 = 運貨貨車",
+                thinkMacDesc: "MAC 位址就像是一輛輛接力運送的貨車。當包裹送到轉運站 (路由器) 時，會從 A 車卸下，轉裝到 B 車上。負責運送的貨車 (MAC) 一直在換，但包裹上的地址 (IP) 始終不變。",
+                
+                draftQuestion: "概念思考：為什麼路由器 (Router) 每次都要換一個新的 MAC 位址，而不是一直保留同一個 MAC 位址呢？",
+                draftInstruction: "在查看解析前，請先在下方草擬你的想法。",
+                btnCompare: "核對解析 (Compare with Answer)",
+                ansTitle: "詳細解析",
+                ansText: "把路由器 (Router) 想像成郵政轉運站。MAC 位址只是一輛負責短途運送的貨車。當貨車抵達轉運站時，它的任務就結束了，所以路由器會「拆除」舊的貨車包裝（這稱為<strong>解封裝 Decapsulation</strong>）。接著，路由器會讀取包裹上的最終 IP 位址，決定下一站該往哪走，然後把它裝上一輛全新的貨車（這稱為<strong>封裝 Encapsulation</strong>，即加上新的 MAC 位址），繼續送往下一站！",
+
+                step0: "📍 <b>位置：</b> 發送端 (電腦 A)<br><br>⚙️ <b>邏輯：</b> 封包產生，準備傳輸。目的地 IP 指向遊戲伺服器。數據被裝進一個名為「訊框 (Frame)」的貨運外箱裡，這張物流單的目的 MAC 寫著同一個網絡內的下一站：家用路由器。",
+                step1: "📍 <b>位置：</b> 路由器 1 (家用路由器)<br><br>⚙️ <b>邏輯：</b> 路由器拆開「訊框」外箱 (解封裝)。它讀取 IP 位址，發現目的地在外部網絡，於是將其重新裝進一個新的外箱中 (封裝)，這張新物流單的目的 MAC 寫著直接連線的下一站：電訊商路由器。<br><br>👉 注意：裡面的 IP 位址保持不變！",
+                step2: "📍 <b>位置：</b> 路由器 2 (電訊商路由器)<br><br>⚙️ <b>邏輯：</b> 封包抵達電訊商。路由器查看 IP 位址，判斷目標就在其機房網絡中，於是進行最後一次封裝，把目的 MAC 換成遊戲伺服器。",
+                step3: "📍 <b>位置：</b> 最終目的地 (遊戲伺服器)<br><br>⚙️ <b>邏輯：</b> 成功抵達！伺服器拆開「訊框」外箱。請對比左圖伺服器的位址與右側的觀察區：伺服器會讀取外箱的 MAC 位址與內層的 IP 位址，並核對這兩個位址是否<b>與其自身的位址完全吻合</b>（見右方綠色的「吻合！」標記）。確認無誤後，便會處理當中的數據。",
+
+                quizTitle: "小測驗 (Mini Quiz)",
+                quizSubtitle: "來測試一下你是不是真的搞懂了 IP 和 MAC 吧！",
+                quizScoreLabel: "你的分數：",
+                btnRetryQuiz: "重試測驗",
+                quizExplanationLabel: "原理解析：",
+
+                // Chinese Code Snippets with Syntax Highlighting
+                codePyStr: `<span class="text-pink-400">class</span> <span class="text-blue-300">Packet</span>:
+    <span class="text-pink-400">def</span> <span class="text-blue-300">__init__</span>(<span class="text-orange-300">self</span>, src_mac, dst_mac, src_ip, dst_ip, payload):
+        <span class="text-slate-400"># Layer 2: MAC 位址 (負責相鄰機器接力的貨車)</span>
+        <span class="text-slate-400"># 這些在每一次經過路由器 (Router) 時都會被換掉！</span>
+        <span class="text-orange-300">self</span>.src_mac = src_mac
+        <span class="text-orange-300">self</span>.dst_mac = dst_mac
+        
+        <span class="text-slate-400"># Layer 3: IP 位址 (最終的目的地地址)</span>
+        <span class="text-slate-400"># 這些從頭到尾都會保持原樣，絕對不會變！</span>
+        <span class="text-orange-300">self</span>.src_ip = src_ip
+        <span class="text-orange-300">self</span>.dst_ip = dst_ip
+        
+        <span class="text-orange-300">self</span>.payload = payload <span class="text-slate-400"># 實際要傳送的數據</span>
+
+    <span class="text-pink-400">def</span> <span class="text-blue-300">route_hop</span>(<span class="text-orange-300">self</span>, new_src_mac, new_dst_mac):
+        <span class="text-green-300">""" 模擬封包到達路由器時發生的事 """</span>
+        <span class="text-slate-400"># 1. 拆除舊的 MAC 外箱，換上新的 (解封裝與封裝)</span>
+        <span class="text-orange-300">self</span>.src_mac = new_src_mac
+        <span class="text-orange-300">self</span>.dst_mac = new_dst_mac
+        
+        <span class="text-slate-400"># 2. 注意：src_ip 和 dst_ip 在此過程中保持不變！</span>`,
+
+                codeCppStr: `<span class="text-pink-400">#include</span> <span class="text-green-300">&lt;iostream&gt;</span>
+<span class="text-pink-400">#include</span> <span class="text-green-300">&lt;string&gt;</span>
+<span class="text-pink-400">using namespace</span> std;
+
+<span class="text-pink-400">struct</span> <span class="text-blue-300">Packet</span> {
+    <span class="text-slate-400">// Layer 2: MAC 位址 (負責相鄰機器接力的貨車)</span>
+    <span class="text-slate-400">// 這些在每一次經過路由器 (Router) 時都會被換掉！</span>
+    string src_mac;
+    string dst_mac;
+    
+    <span class="text-slate-400">// Layer 3: IP 位址 (最終的目的地地址)</span>
+    <span class="text-slate-400">// 這些從頭到尾都會保持原樣，絕對不會變！</span>
+    string src_ip;
+    string dst_ip;
+    
+    string payload; <span class="text-slate-400">// 實際要傳送的數據</span>
+
+    <span class="text-slate-400">// 模擬封包到達路由器時發生的事</span>
+    <span class="text-pink-400">void</span> <span class="text-blue-300">routeHop</span>(string new_src_mac, string new_dst_mac) {
+        <span class="text-slate-400">// 1. 拆除舊的 MAC 外箱，換上新的 (解封裝與封裝)</span>
+        <span class="text-orange-300">this</span>->src_mac = new_src_mac;
+        <span class="text-orange-300">this</span>->dst_mac = new_dst_mac;
+        
+        <span class="text-slate-400">// 2. 注意：src_ip 和 dst_ip 在此過程中保持不變！</span>
+    }
+};`
+            }
+        };
+
+        const quizData = {
+            en: [
+                { 
+                    q: "Which address guarantees End-to-End delivery across different networks?", 
+                    options: ["MAC Address", "IP Address", "Both"], 
+                    ans: 1,
+                    exp: "The IP address operates at the Network Layer (Layer 3) and represents the final logical destination, ensuring end-to-end delivery across multiple networks."
+                },
+                { 
+                    q: "When a router receives a frame, what does it do to the Layer 2 header?", 
+                    options: ["Keeps it unchanged", "Strips it (Decapsulation) and creates a new one", "Modifies the IP address instead"], 
+                    ans: 1,
+                    exp: "A router performs Decapsulation to strip the old MAC header, reads the IP address to determine the path, and then performs Encapsulation to create a new MAC header for the next hop."
+                },
+                { 
+                    q: "Why doesn't the IP address change at a router (assuming no Network Address Translation (NAT))?", 
+                    options: ["Because it represents the final logical destination", "Because routers cannot read IP addresses", "Because IP addresses are physically hardcoded into the network card"], 
+                    ans: 0,
+                    exp: "The IP address is the ultimate mailing address for the payload. Unless Network Address Translation (NAT) is involved, it remains unchanged from the sender to the final receiver."
+                }
+            ],
+            zh: [
+                { 
+                    q: "哪一種位址負責確保數據能夠跨越多個網絡，一直送到最終的真正目的地？", 
+                    options: ["MAC 位址 (MAC Address)", "IP 位址 (IP Address)", "兩個都是"], 
+                    ans: 1,
+                    exp: "IP 位址屬於網絡層 (Layer 3)，負責端到端 (End-to-End) 的傳輸，就像包裹上的最終郵遞地址，確保數據能跨越不同的網絡到達目的地。"
+                },
+                { 
+                    q: "當路由器 (Router) 收到封包時，它會怎麼處理外層的 MAC 標頭 (Layer 2 header)？", 
+                    options: ["原封不動保留著", "拆除舊的 (解封裝)，然後換上一個全新的", "保留 MAC，但把裡面的 IP 偷偷改掉"], 
+                    ans: 1,
+                    exp: "當路由器接收到包裹時，會先進行解封裝 (Decapsulation) 拆除舊的 MAC 外箱，讀取 IP 位址決定路徑後，再進行封裝 (Encapsulation) 換上指向下一站機器的全新 MAC 外箱。"
+                },
+                { 
+                    q: "為什麼 IP 位址在經過路由器時不會改變？(假設沒有使用「網絡地址轉換」Network Address Translation, NAT 這類特殊技術)", 
+                    options: ["因為它代表著最終的目標地址，就像包裹上的收件人一樣", "因為路由器看不懂 IP 位址", "因為 IP 位址是被物理鎖死在網絡線上的"], 
+                    ans: 0,
+                    exp: "IP 位址代表著最終的邏輯目的地。除非使用了網絡地址轉換 (Network Address Translation, NAT，一種路由器用來轉換內外部 IP 的技術)，否則它從發送端到接收端都會保持不變。"
+                }
+            ]
+        };
+
+        let currentLang = 'en';
+        let autoPlayTimer = null;
+        let userScore = 0;
+        let answeredQuestions = 0;
+        
+        const nodes = [
+            { id: "node-0", mac: "00:1A:2B:3C:4D:5E" },
+            { id: "node-1", mac: "AA:BB:CC:DD:EE:11", outMac: "AA:BB:CC:DD:EE:22" },
+            { id: "node-2", mac: "11:22:33:44:55:66", outMac: "11:22:33:44:55:77" },
+            { id: "node-3", mac: "FF:EE:DD:CC:BB:AA" }
+        ];
+
+        const journeySteps = [
+            { nodeIndex: 0, icon: "fa-truck", macSrc: nodes[0].mac, macDst: nodes[1].mac },
+            { nodeIndex: 1, icon: "fa-plane", macSrc: nodes[1].outMac, macDst: nodes[2].mac },
+            { nodeIndex: 2, icon: "fa-truck-fast", macSrc: nodes[2].outMac, macDst: nodes[3].mac },
+            { nodeIndex: 3, icon: "fa-check", macSrc: nodes[2].outMac, macDst: nodes[3].mac }
+        ];
+
+        let currentStep = -1;
+        
+        function updateLanguage(lang) {
+            currentLang = lang;
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (i18nDict[lang][key]) {
+                    el.innerHTML = i18nDict[lang][key];
+                }
+            });
+
+            // Update Language Toggle Button Text
+            const langBtnText = document.getElementById('lang-text');
+            if (lang === 'en') {
+                langBtnText.textContent = "繁體中文";
+            } else {
+                langBtnText.textContent = "English";
+            }
+
+            // Update Code Snippets dynamically with syntax highlighting
+            document.getElementById('code-py-container').innerHTML = i18nDict[lang].codePyStr;
+            document.getElementById('code-cpp-container').innerHTML = i18nDict[lang].codeCppStr;
+
+            if (currentStep >= 0) {
+                document.getElementById('status-text').innerHTML = i18nDict[lang][`step${currentStep}`];
+            }
+            
+            const btnAuto = document.getElementById('btn-auto');
+            if(autoPlayTimer) {
+                btnAuto.innerHTML = `<i class="fa-solid fa-pause mr-2"></i> ${i18nDict[lang].btnAutoPause}`;
+            } else {
+                btnAuto.innerHTML = `<i class="fa-solid fa-play mr-2"></i> ${i18nDict[lang].btnAuto}`;
+            }
+            
+            userScore = 0;
+            answeredQuestions = 0;
+            renderQuiz();
+        }
+
+        // Language Toggle Event Listener
+        document.getElementById('lang-toggle-btn').addEventListener('click', () => {
+            updateLanguage(currentLang === 'en' ? 'zh' : 'en');
+        });
+
+        // Tab Switching for Code
+        document.getElementById('tab-py').addEventListener('click', () => {
+            document.getElementById('code-py-container').classList.remove('hidden');
+            document.getElementById('code-cpp-container').classList.add('hidden');
+            document.getElementById('tab-py').className = 'px-6 py-3 text-sm font-semibold text-white border-b-2 border-blue-400 bg-slate-700 transition-colors';
+            document.getElementById('tab-cpp').className = 'px-6 py-3 text-sm font-semibold text-slate-400 border-b-2 border-transparent hover:text-white transition-colors';
+        });
+        document.getElementById('tab-cpp').addEventListener('click', () => {
+            document.getElementById('code-cpp-container').classList.remove('hidden');
+            document.getElementById('code-py-container').classList.add('hidden');
+            document.getElementById('tab-cpp').className = 'px-6 py-3 text-sm font-semibold text-white border-b-2 border-blue-400 bg-slate-700 transition-colors';
+            document.getElementById('tab-py').className = 'px-6 py-3 text-sm font-semibold text-slate-400 border-b-2 border-transparent hover:text-white transition-colors';
+        });
+
+        // Draft & Reveal Logic
+        document.getElementById('btn-compare').addEventListener('click', () => {
+            const textarea = document.getElementById('draft-textarea');
+            textarea.disabled = true;
+            textarea.classList.add('bg-slate-100', 'text-slate-500');
+            document.getElementById('reveal-answer').classList.remove('hidden');
+            document.getElementById('btn-compare').classList.add('hidden');
+        });
+
+        function getCenterCoords(elementId) {
+            // Find the circular icon instead of the entire node bounding box 
+            // so the lines draw precisely to the center regardless of text height.
+            const index = elementId.split('-')[1];
+            const el = document.getElementById(`icon-${index}`);
+            const canvas = document.getElementById('network-canvas');
+            const elRect = el.getBoundingClientRect();
+            const canvasRect = canvas.getBoundingClientRect();
+            // Works perfectly even when parent is horizontally scrolling
+            return {
+                x: elRect.left - canvasRect.left + (elRect.width / 2),
+                y: elRect.top - canvasRect.top + (elRect.height / 2)
+            };
+        }
+
+        function drawLines() {
+            const svg = document.getElementById('connections-svg');
+            svg.innerHTML = '';
+            for(let i=0; i < nodes.length - 1; i++) {
+                const p1 = getCenterCoords(nodes[i].id);
+                const p2 = getCenterCoords(nodes[i + 1].id);
+                const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                line.setAttribute("x1", p1.x); line.setAttribute("y1", p1.y);
+                line.setAttribute("x2", p2.x); line.setAttribute("y2", p2.y);
+                line.setAttribute("stroke", "#cbd5e1");
+                line.setAttribute("stroke-width", "4");
+                line.setAttribute("stroke-dasharray", "8, 6");
+                svg.appendChild(line);
+                
+                if (currentStep >= 0 && i === journeySteps[currentStep].nodeIndex && i < nodes.length - 1) {
+                    const trail = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    trail.setAttribute("x1", p1.x); trail.setAttribute("y1", p1.y);
+                    trail.setAttribute("x2", p2.x); trail.setAttribute("y2", p2.y);
+                    trail.setAttribute("stroke", "#3b82f6");
+                    trail.setAttribute("stroke-width", "6");
+                    trail.setAttribute("class", "packet-trail");
+                    svg.appendChild(trail);
+                }
+            }
+        }
+
+        function triggerHighlight(elementId) {
+            const el = document.getElementById(elementId);
+            el.classList.remove('highlight-flash');
+            void el.offsetWidth; // trigger reflow
+            el.classList.add('highlight-flash');
+        }
+
+        function updateNodePulse(activeIndex) {
+            nodes.forEach((n, i) => {
+                const iconBox = document.getElementById(`icon-${i}`);
+                if (i === activeIndex) {
+                    iconBox.classList.add('node-pulse');
+                    iconBox.classList.replace('border-slate-200', 'border-blue-400');
+                    iconBox.classList.replace('border-emerald-200', 'border-emerald-400');
+                } else {
+                    iconBox.classList.remove('node-pulse');
+                    iconBox.classList.replace('border-blue-400', 'border-slate-200');
+                    iconBox.classList.replace('border-emerald-400', 'border-emerald-200');
+                }
+            });
+            if (activeIndex === 3) {
+                const iconBox = document.getElementById(`icon-3`);
+                iconBox.classList.add('node-pulse');
+                iconBox.classList.replace('border-emerald-200', 'border-emerald-400');
+            }
+        }
+
+        function renderSimulationStep(index) {
+            const stepData = journeySteps[index];
+            const targetCoords = getCenterCoords(nodes[stepData.nodeIndex].id);
+            const packetEl = document.getElementById('the-packet');
+            
+            packetEl.style.left = `${targetCoords.x}px`;
+            packetEl.style.top = `${targetCoords.y}px`;
+            
+            updateNodePulse(stepData.nodeIndex);
+            
+            const statusBox = document.getElementById('status-box');
+            const statusText = document.getElementById('status-text');
+            statusBox.classList.remove('highlight-bg');
+            void statusBox.offsetWidth;
+            statusBox.classList.add('highlight-bg');
+            
+            statusText.innerHTML = i18nDict[currentLang][`step${index}`];
+            document.getElementById('transport-icon').innerHTML = `<i class="fa-solid ${stepData.icon}"></i>`;
+            
+            const macSrcEl = document.getElementById('mac-src');
+            const macDstEl = document.getElementById('mac-dst');
+            
+            if (macSrcEl.textContent !== stepData.macSrc) {
+                macSrcEl.textContent = stepData.macSrc;
+                triggerHighlight('mac-src');
+            }
+            if (macDstEl.textContent !== stepData.macDst) {
+                macDstEl.textContent = stepData.macDst;
+                triggerHighlight('mac-dst');
+            }
+
+            // Visual Check Match Effect on Receiver Step (Step 3)
+            const ipMatchBadge = document.getElementById('ip-match-badge');
+            const macMatchBadge = document.getElementById('mac-match-badge');
+            const ipDstBox = document.getElementById('ip-dst');
+            const macDstBox = document.getElementById('mac-dst');
+
+            if (index === 3) {
+                ipMatchBadge.classList.remove('hidden');
+                macMatchBadge.classList.remove('hidden');
+                ipDstBox.classList.add('bg-emerald-50', 'border-emerald-300', 'text-emerald-800');
+                macDstBox.classList.add('bg-emerald-50', 'border-emerald-300', 'text-emerald-800');
+            } else {
+                ipMatchBadge.classList.add('hidden');
+                macMatchBadge.classList.add('hidden');
+                ipDstBox.classList.remove('bg-emerald-50', 'border-emerald-300', 'text-emerald-800');
+                macDstBox.classList.remove('bg-emerald-50', 'border-emerald-300', 'text-emerald-800');
+            }
+            
+            drawLines(); // Update the animated path trail
+        }
+
+        function updateButtons() {
+            const btnNext = document.getElementById('btn-next');
+            const btnPrev = document.getElementById('btn-prev');
+            const btnAuto = document.getElementById('btn-auto');
+            
+            if (currentStep < 0) {
+                btnNext.innerHTML = i18nDict[currentLang].btnStart;
+                btnPrev.disabled = true;
+                btnAuto.disabled = false;
+            } else if (currentStep < journeySteps.length - 1) {
+                btnNext.innerHTML = i18nDict[currentLang].btnNext;
+                btnPrev.disabled = false;
+                btnAuto.disabled = false;
+            } else {
+                btnNext.innerHTML = "<i class='fa-solid fa-check mr-2'></i>" + (currentLang === 'en' ? "Done" : "完成");
+                btnNext.disabled = true;
+                btnPrev.disabled = false;
+                btnAuto.disabled = true;
+                if(autoPlayTimer) { 
+                    clearInterval(autoPlayTimer); autoPlayTimer = null; 
+                    btnAuto.innerHTML = `<i class="fa-solid fa-play mr-2"></i> ${i18nDict[currentLang].btnAuto}`; 
+                    btnAuto.classList.replace('bg-orange-500', 'bg-emerald-600'); 
+                    btnAuto.classList.replace('hover:bg-orange-600', 'hover:bg-emerald-700');
+                }
+            }
+        }
+
+        document.getElementById('btn-auto').addEventListener('click', function() {
+            const btnAuto = this;
+            if (autoPlayTimer) {
+                clearInterval(autoPlayTimer);
+                autoPlayTimer = null;
+                btnAuto.innerHTML = `<i class="fa-solid fa-play mr-2"></i> ${i18nDict[currentLang].btnAuto}`;
+                btnAuto.classList.replace('bg-orange-500', 'bg-emerald-600');
+                btnAuto.classList.replace('hover:bg-orange-600', 'hover:bg-emerald-700');
+            } else {
+                if (currentStep === -1) {
+                    document.getElementById('the-packet').classList.remove('hidden');
+                    currentStep++;
+                    renderSimulationStep(currentStep);
+                    updateButtons();
+                }
+                
+                btnAuto.innerHTML = `<i class="fa-solid fa-pause mr-2"></i> ${i18nDict[currentLang].btnAutoPause}`;
+                btnAuto.classList.replace('bg-emerald-600', 'bg-orange-500');
+                btnAuto.classList.replace('hover:bg-emerald-700', 'hover:bg-orange-600');
+                
+                autoPlayTimer = setInterval(() => {
+                    if (currentStep < journeySteps.length - 1) {
+                        currentStep++;
+                        renderSimulationStep(currentStep);
+                        updateButtons();
+                    } else {
+                        clearInterval(autoPlayTimer);
+                        autoPlayTimer = null;
+                        btnAuto.innerHTML = `<i class="fa-solid fa-play mr-2"></i> ${i18nDict[currentLang].btnAuto}`;
+                        btnAuto.classList.replace('bg-orange-500', 'bg-emerald-600');
+                        btnAuto.classList.replace('hover:bg-orange-600', 'hover:bg-emerald-700');
+                    }
+                }, 2500); 
+            }
+        });
+
+        document.getElementById('btn-next').addEventListener('click', () => {
+            if (currentStep === -1) {
+                document.getElementById('the-packet').classList.remove('hidden');
+            }
+            if (currentStep < journeySteps.length - 1) {
+                currentStep++;
+                renderSimulationStep(currentStep);
+                updateButtons();
+            }
+        });
+
+        document.getElementById('btn-prev').addEventListener('click', () => {
+            if (currentStep > 0) {
+                currentStep--;
+                renderSimulationStep(currentStep);
+                updateButtons();
+                document.getElementById('btn-next').disabled = false;
+            }
+        });
+
+        document.getElementById('btn-reset').addEventListener('click', () => {
+            currentStep = -1;
+            document.getElementById('the-packet').classList.add('hidden');
+            document.getElementById('status-text').innerHTML = i18nDict[currentLang].statusInit;
+            document.getElementById('mac-src').textContent = "--:--:--:--:--:--";
+            document.getElementById('mac-dst').textContent = "--:--:--:--:--:--";
+            updateNodePulse(-1);
+            
+            // Reset Visual Check
+            const ipMatchBadge = document.getElementById('ip-match-badge');
+            const macMatchBadge = document.getElementById('mac-match-badge');
+            const ipDstBox = document.getElementById('ip-dst');
+            const macDstBox = document.getElementById('mac-dst');
+            
+            ipMatchBadge.classList.add('hidden');
+            macMatchBadge.classList.add('hidden');
+            ipDstBox.classList.remove('bg-emerald-50', 'border-emerald-300', 'text-emerald-800');
+            macDstBox.classList.remove('bg-emerald-50', 'border-emerald-300', 'text-emerald-800');
+            
+            if(autoPlayTimer) {
+                clearInterval(autoPlayTimer); autoPlayTimer = null;
+                const btnAuto = document.getElementById('btn-auto');
+                btnAuto.innerHTML = `<i class="fa-solid fa-play mr-2"></i> ${i18nDict[currentLang].btnAuto}`;
+                btnAuto.classList.replace('bg-orange-500', 'bg-emerald-600');
+                btnAuto.classList.replace('hover:bg-orange-600', 'hover:bg-emerald-700');
+            }
+            drawLines();
+            
+            const btnNext = document.getElementById('btn-next');
+            btnNext.disabled = false;
+            updateButtons();
+        });
+
+        function renderQuiz() {
+            const container = document.getElementById('quiz-container');
+            container.innerHTML = '';
+            const questions = quizData[currentLang];
+            
+            questions.forEach((qObj, index) => {
+                const qDiv = document.createElement('div');
+                qDiv.className = 'border border-slate-200 rounded-xl p-6 bg-slate-50/50 shadow-sm transition hover:shadow-md relative';
+                
+                let optionsHtml = '';
+                qObj.options.forEach((opt, optIndex) => {
+                    optionsHtml += `<div class="quiz-option border border-slate-300 rounded-xl p-4 mt-4 flex items-center gap-4 text-slate-700 bg-white" data-qindex="${index}" data-optindex="${optIndex}">
+                        <div class="w-6 h-6 rounded-full border-2 border-slate-400 flex items-center justify-center pointer-events-none marker bg-slate-50 shrink-0"></div>
+                        <span class="pointer-events-none font-medium text-lg leading-loose">${opt}</span>
+                    </div>`;
+                });
+
+                qDiv.innerHTML = `
+                    <h3 class="font-bold text-slate-800 text-lg mb-2">${index + 1}. ${qObj.q}</h3>
+                    <div class="options-container" id="q-${index}">
+                        ${optionsHtml}
+                    </div>
+                    <!-- Explanation Box (Hidden initially) -->
+                    <div id="exp-${index}" class="hidden mt-6 p-6 rounded-xl text-lg leading-loose bg-blue-50 text-blue-800 border border-blue-200">
+                        <strong data-i18n="quizExplanationLabel">${i18nDict[currentLang].quizExplanationLabel}</strong> 
+                        <span>${qObj.exp}</span>
+                    </div>
+                `;
+                container.appendChild(qDiv);
+            });
+
+            document.querySelectorAll('.quiz-option').forEach(optEl => {
+                optEl.addEventListener('click', handleQuizClick);
+            });
+            
+            document.getElementById('quiz-results').classList.add('hidden');
+        }
+
+        function handleQuizClick(e) {
+            const qIndex = parseInt(e.target.getAttribute('data-qindex'));
+            const optIndex = parseInt(e.target.getAttribute('data-optindex'));
+            const container = document.getElementById(`q-${qIndex}`);
+            const correctIndex = quizData[currentLang][qIndex].ans;
+            
+            if (container.classList.contains('answered')) return;
+            container.classList.add('answered');
+            answeredQuestions++;
+
+            Array.from(container.children).forEach((child, i) => {
+                child.classList.add('disabled');
+                const marker = child.querySelector('.marker');
+                
+                if (i === correctIndex) {
+                    child.classList.add('correct');
+                    marker.innerHTML = '<i class="fa-solid fa-check text-xs text-white"></i>';
+                    marker.classList.replace('border-slate-400', 'border-green-500');
+                    marker.classList.replace('bg-slate-50', 'bg-green-500');
+                    if (i === optIndex) userScore++;
+                } else if (i === optIndex) {
+                    child.classList.add('wrong');
+                    marker.innerHTML = '<i class="fa-solid fa-xmark text-xs text-white"></i>';
+                    marker.classList.replace('border-slate-400', 'border-red-500');
+                    marker.classList.replace('bg-slate-50', 'bg-red-500');
+                }
+            });
+
+            // Show explanation
+            document.getElementById(`exp-${qIndex}`).classList.remove('hidden');
+
+            if (answeredQuestions === quizData[currentLang].length) {
+                const results = document.getElementById('quiz-results');
+                results.classList.remove('hidden');
+                document.getElementById('score-display').textContent = `${userScore}/${quizData[currentLang].length}`;
+            }
+        }
+
+        document.getElementById('btn-retry-quiz').addEventListener('click', () => {
+            userScore = 0;
+            answeredQuestions = 0;
+            renderQuiz();
+        });
+
+        window.addEventListener('resize', () => {
+            drawLines();
+            if (currentStep >= 0) {
+                const coords = getCenterCoords(nodes[journeySteps[currentStep].nodeIndex].id);
+                const packetEl = document.getElementById('the-packet');
+                packetEl.style.transition = 'none';
+                packetEl.style.left = `${coords.x}px`;
+                packetEl.style.top = `${coords.y}px`;
+                setTimeout(() => packetEl.style.transition = 'all 1s cubic-bezier(0.4, 0, 0.2, 1)', 50);
+            }
+        });
+
+        window.addEventListener('load', () => {
+            drawLines();
+            updateLanguage('en'); // Enforce English as default
+        });
+    </script>
+</body>
+</html>
